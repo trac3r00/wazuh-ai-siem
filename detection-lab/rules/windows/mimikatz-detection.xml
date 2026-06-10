@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<group name="custom,sysmon,attack">
+
+  <!-- ========================================== -->
+  <!-- T1003 - Mimikatz Detection                 -->
+  <!-- ========================================== -->
+
+  <!-- Detect Mimikatz by original filename -->
+  <rule id="100001" level="15">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.originalFileName" type="pcre2">(?i)mimikatz</field>
+    <description>CRITICAL: Mimikatz detected - credential theft tool!</description>
+    <mitre>
+      <id>T1003</id>
+    </mitre>
+  </rule>
+
+  <!-- Detect Mimikatz by common command line arguments -->
+  <rule id="100002" level="15">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(sekurlsa|lsadump|kerberos::)</field>
+    <description>CRITICAL: Mimikatz commands detected - credential dumping!</description>
+    <mitre>
+      <id>T1003</id>
+    </mitre>
+  </rule>
+
+  <!-- ========================================== -->
+  <!-- T1059.001 - PowerShell Attacks             -->
+  <!-- ========================================== -->
+
+  <!-- Encoded PowerShell Commands -->
+  <rule id="100003" level="12">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)\s+-(enc|encodedcommand|e)\s+[A-Za-z0-9+/=]{20,}</field>
+    <description>ALERT: Encoded PowerShell command detected!</description>
+    <mitre>
+      <id>T1059.001</id>
+    </mitre>
+  </rule>
+
+  <!-- PowerShell Download Cradle -->
+  <rule id="100004" level="12">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(IEX|Invoke-Expression).*(IWR|Invoke-WebRequest|WebClient|DownloadString)</field>
+    <description>ALERT: PowerShell download cradle detected!</description>
+    <mitre>
+      <id>T1059.001</id>
+    </mitre>
+  </rule>
+
+  <!-- ========================================== -->
+  <!-- T1136.001 - Account Creation               -->
+  <!-- ========================================== -->
+
+  <!-- Local Account Creation -->
+  <!-- REVIEW: This rule combines account creation AND group membership modification.
+       T1136.001 is only for "Local Account Creation".
+       Group membership modification (localgroup /add) should use T1098 (Account Manipulation).
+       Consider splitting into two separate rules for accurate MITRE mapping. -->
+  <rule id="100005" level="10">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)net1?\s+(user|localgroup).*/add</field>
+    <description>ALERT: Local account or group membership created!</description>
+    <mitre>
+      <id>T1136.001</id>
+    </mitre>
+  </rule>
+
+  <!-- ========================================== -->
+  <!-- T1053.005 - Scheduled Task Persistence     -->
+  <!-- ========================================== -->
+
+  <!-- Scheduled Task Creation -->
+  <rule id="100006" level="10">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)schtasks.*/create</field>
+    <description>ALERT: Scheduled task created - possible persistence!</description>
+    <mitre>
+      <id>T1053.005</id>
+    </mitre>
+  </rule>
+
+  <!-- ========================================== -->
+  <!-- T1562.001 - Defense Evasion                -->
+  <!-- ========================================== -->
+
+  <!-- Disable Windows Defender -->
+  <rule id="100007" level="14">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(Set-MpPreference.*Disable|DisableRealtimeMonitoring)</field>
+    <description>CRITICAL: Attempt to disable Windows Defender!</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+  </rule>
+
+  <!-- Stop Security Services -->
+  <rule id="100008" level="14">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(net\s+stop|sc\s+stop).*(windefend|sense)</field>
+    <description>CRITICAL: Attempt to stop security services!</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+  </rule>
+
+  <!-- ========================================== -->
+  <!-- T1558.003 - Kerberoasting Detection        -->
+  <!-- T1558.004 - AS-REP Roasting (Rule 100010)  -->
+  <!-- ========================================== -->
+
+  <!-- Kerberoasting - RC4 Ticket Request -->
+  <rule id="100009" level="12">
+    <if_sid>60103</if_sid>
+    <field name="win.system.eventID">^4769$</field>
+    <field name="win.eventdata.ticketEncryptionType">^0x17$</field>
+    <description>ALERT: Possible Kerberoasting Attack Detected (RC4 Request)</description>
+    <mitre>
+      <id>T1558.003</id>
+    </mitre>
+    <options>no_full_log</options>
+  </rule>
+
+  <!-- REVIEW: Rule 100010 below detects AS-REP Roasting (T1558.004), not Kerberoasting (T1558.003).
+       While correctly tagged with T1558.004, consider moving to its own section for clarity. -->
+  <rule id="100010" level="12">
+    <if_sid>60103</if_sid>
+    <field name="win.system.eventID">^4768$</field>
+    <field name="win.eventdata.ticketEncryptionType">^0x17$</field>
+    <field name="win.eventdata.preAuthType">^0$</field>
+    <description>Possible AS-REP Roasting Attack (RC4 TGT with No Pre-Auth)</description>
+    <mitre>
+      <id>T1558.004</id>
+    </mitre>
+    <options>no_full_log</options>
+  </rule>
+
+  <!-- ========================================== -->
+  <!-- REVIEW: Rule 100011 has multiple issues:   -->
+  <!-- 1. Misplaced under Kerberoasting section - should have its own section -->
+  <!-- 2. Hardcoded filename "malware_dropper.ps1" is too specific/unrealistic -->
+  <!--    This appears to be a test/simulation rule, not a production detection -->
+  <!-- 3. MITRE T1105 (Ingress Tool Transfer) may not be the best fit -->
+  <!--    Consider T1204.002 (User Execution: Malicious File) or T1059.001 -->
+  <!-- 4. Depends on if_sid 554 - verify this parent rule exists and is appropriate -->
+  <!-- 5. Should use field matching for better detection instead of <match> tag -->
+  <!-- ========================================== -->
+  <rule id="100011" level="12">
+  <if_sid>554</if_sid>
+  <match>malware_dropper.ps1</match>
+  <description>CRITICAL: Known Malware File Detected (Simulated Dropper)</description>
+  <mitre>
+    <id>T1105</id>
+  </mitre>
+</rule>
+
+
+</group>

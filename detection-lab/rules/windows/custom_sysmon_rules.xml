@@ -1,0 +1,36 @@
+<group name="sysmon,custom,">
+
+  <rule id="100004" level="10">
+    <if_group>windows</if_group>
+    <field name="win.system.providerName">Microsoft-Windows-Sysmon</field>
+    <field name="win.system.eventID">^1$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(Net\.WebClient|DownloadFile|DownloadString|Invoke-WebRequest|iwr|wget|curl)</field>
+    <description>PowerShell Download Cradle detected: $(win.eventdata.commandLine)</description>
+    <mitre>
+      <id>T1059.001</id>
+    </mitre>
+  </rule>
+
+  <rule id="100007" level="12">
+    <if_group>windows</if_group>
+    <field name="win.system.providerName">Microsoft-Windows-Sysmon</field>
+    <field name="win.system.eventID">^1$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)Set-MpPreference.*DisableRealtimeMonitoring.*\$true</field>
+    <description>Attempt to disable Windows Defender Real-Time Monitoring Detected</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+  </rule>
+
+  <rule id="100008" level="12">
+    <if_group>windows</if_group>
+    <field name="win.system.providerName">Microsoft-Windows-Sysmon</field>
+    <field name="win.system.eventID">^1$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(net stop|sc stop|sc config.*disabled).*(SDRSVC|WinDefend|wuauserv|wscsvc|MpsSvc)</field>
+    <description>Attempt to stop/disable critical Windows Security Service: $(win.eventdata.commandLine)</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+  </rule>
+
+</group>

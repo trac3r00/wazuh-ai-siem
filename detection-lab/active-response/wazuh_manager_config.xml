@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ossec_config>
+  <command>
+    <name>firewall-drop-suricata</name>
+    <executable>firewall-drop</executable>
+    <expect>src_ip</expect>
+    <timeout_allowed>yes</timeout_allowed>
+  </command>
+
+  <active-response>
+    <command>firewall-drop-suricata</command>
+    <location>local</location>
+    <rules_group>suricata</rules_group>
+    <level>3</level>
+    <timeout>600</timeout>
+  </active-response>
+</ossec_config>
