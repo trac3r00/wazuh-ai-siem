@@ -351,6 +351,12 @@ curl http://localhost:8081/alerts/summary
 | Wazuh Alerts | `/var/ossec/logs/alerts/alerts.log` |
 | Wazuh Archives | `/var/ossec/logs/archives/archives.json` |
 
+## 🧪 Detection Lab
+
+This repo also includes my detection engineering lab journey — custom Sysmon/Mimikatz rules, Atomic Red Team simulations, GOAD Active Directory attack detection (Kerberoasting, AS-REP Roasting, Pass-the-Hash), and automated active response.
+
+See [`detection-lab/`](detection-lab/) for the full lab documentation, deployment guide, and Windows detection rules.
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
