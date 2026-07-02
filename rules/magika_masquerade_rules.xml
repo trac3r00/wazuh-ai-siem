@@ -1,0 +1,72 @@
+<!--
+  Wazuh AI SIEM - Magika File-Masquerade Detection Rules
+  Location: /var/ossec/etc/rules/magika_masquerade_rules.xml
+
+  Consumes JSON events emitted by integrations/file_masquerade_scan.py, which
+  uses Google's Magika (deep-learning content classifier) to flag files whose
+  real byte-content does not match their extension — the classic dropper /
+  webshell masquerade (e.g. a shell script saved as report.csv).
+
+  Ingest side (ossec.conf on the monitored host):
+    <localfile>
+      <log_format>json</log_format>
+      <location>/var/log/masquerade.json</location>
+    </localfile>
+
+  Run the scanner on a schedule or on upload (cron / inotify / active response),
+  writing its JSON events to /var/log/masquerade.json via the json-out flag.
+  See integrations/file_masquerade_scan.py for the exact invocation.
+
+  MITRE ATT&CK: T1036.008 (Masquerading: Masquerade File Type)
+  Author: @Trac3r00
+-->
+
+<group name="magika,file_integrity,masquerade,">
+
+  <!-- Base rule: any event coming from the magika integration. -->
+  <rule id="100940" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="integration">magika</field>
+    <description>Magika: file-type classification event</description>
+    <group>magika,</group>
+  </rule>
+
+  <!-- Medium-confidence masquerade — suspicious content/extension mismatch. -->
+  <rule id="100941" level="8">
+    <if_sid>100940</if_sid>
+    <field name="event">file_masquerade</field>
+    <field name="severity">medium</field>
+    <description>File masquerade (medium): $(detected_type) content disguised as .$(claimed_ext) at $(src_path)</description>
+    <mitre>
+      <id>T1036.008</id>
+    </mitre>
+    <group>magika,masquerade,gpg13_4.13,</group>
+  </rule>
+
+  <!-- High-confidence masquerade — executable/script hiding behind a benign
+       extension. This is the alert an analyst should actually action. -->
+  <rule id="100942" level="12">
+    <if_sid>100940</if_sid>
+    <field name="event">file_masquerade</field>
+    <field name="severity">high</field>
+    <description>File masquerade (HIGH): $(detected_group) '$(detected_type)' disguised as .$(claimed_ext) at $(src_path)</description>
+    <mitre>
+      <id>T1036.008</id>
+    </mitre>
+    <group>magika,masquerade,attack,gpg13_4.13,</group>
+  </rule>
+
+  <!-- Escalate: executable (ELF/PE/Mach-O) masquerading in a web-served dir is
+       a very likely dropper/webshell staging. Bump to level 14. -->
+  <rule id="100943" level="14">
+    <if_sid>100942</if_sid>
+    <field name="detected_group">executable</field>
+    <description>Likely dropper: native executable '$(detected_type)' masquerading as .$(claimed_ext) at $(src_path)</description>
+    <mitre>
+      <id>T1036.008</id>
+      <id>T1587.001</id>
+    </mitre>
+    <group>magika,masquerade,attack,dropper,</group>
+  </rule>
+
+</group>

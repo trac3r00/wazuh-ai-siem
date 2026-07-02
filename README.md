@@ -101,6 +101,15 @@ Python integrations that feed security events to a locally-hosted LLM for classi
 ### 3. MCP / Chat API Server
 [`services/mcp_server.py`](services/mcp_server.py) — REST API + web UI for SIEM interaction: agent status, alert summaries, conversational log queries.
 
+### 4. AI File-Masquerade Detection (Magika)
+[`integrations/file_masquerade_scan.py`](integrations/file_masquerade_scan.py) — uses Google's **[Magika](https://github.com/google/magika)** deep-learning content classifier to identify a file's *true* type from its bytes and flag files whose real content contradicts their extension — the classic dropper/webshell masquerade (a shell script saved as `report.csv`, an ELF disguised as `readme.txt`). Emits Wazuh-ready JSON events mapped to **MITRE ATT&CK [T1036.008](https://attack.mitre.org/techniques/T1036/008/)** (Masquerade File Type), consumed by [`rules/magika_masquerade_rules.xml`](rules/magika_masquerade_rules.xml) (levels 8→14, escalating for native executables in web-served dirs). Point it at an upload dir on a cron/inotify trigger:
+
+```bash
+file_masquerade_scan.py /var/www/uploads --json-out /var/log/masquerade.json
+```
+
+A self-test ([`integrations/selftest_masquerade.py`](integrations/selftest_masquerade.py)) verifies detection on synthetic samples and runs in CI.
+
 ---
 
 ## ⚡ Automated Response (SOAR)
