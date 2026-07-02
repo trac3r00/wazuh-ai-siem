@@ -1,12 +1,13 @@
 name: security
 
 # Two independent security gates for this repo:
-#   1. osv-scan   — SCA gate over the Python integration scripts' dependencies.
+#   1. osv-scan    — SCA gate over the Python integration scripts' dependencies.
 #   2. magika-test — self-test the file-masquerade detector against synthetic
 #                    samples so a regression in detection logic fails CI.
 #
-# All scan-args / run steps use static literals — no untrusted event input is
-# interpolated, so these workflows are not injectable.
+# OSV-Scanner is installed as a binary (no external action-version coupling).
+# All run steps use static literals — no untrusted event input is interpolated,
+# so these workflows are not injectable.
 
 on:
   push:
@@ -17,7 +18,9 @@ on:
 
 permissions:
   contents: read
-  security-events: write
+
+env:
+  OSV_VERSION: v2.4.0
 
 jobs:
   osv-scan:
@@ -36,25 +39,14 @@ jobs:
           pip freeze > requirements.lock.txt
           echo "----- resolved dependency lock -----"
           cat requirements.lock.txt
-      - name: Run OSV-Scanner (SARIF, non-blocking upload)
-        uses: google/osv-scanner-action@v2.3.8
+      - name: Install OSV-Scanner
+        run: |
+          curl -sSL "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64" -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+          osv-scanner --version
+      - name: Run OSV-Scanner (report — advisory for a homelab project)
         continue-on-error: true
-        with:
-          scan-args: |-
-            --lockfile=requirements.lock.txt
-            --format=sarif
-            --output=osv-results.sarif
-      - name: Upload SARIF to GitHub Security tab
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: osv-results.sarif
-      - name: Run OSV-Scanner (report)
-        uses: google/osv-scanner-action@v2.3.8
-        continue-on-error: true  # advisory for a homelab project, not a hard block
-        with:
-          scan-args: |-
-            --lockfile=requirements.lock.txt
+        run: osv-scanner scan source --lockfile=requirements.lock.txt
 
   magika-test:
     name: Magika masquerade detector self-test
@@ -70,4 +62,3 @@ jobs:
           pip install magika
       - name: Run detector self-test (synthetic masquerade samples)
         run: python integrations/selftest_masquerade.py
-
