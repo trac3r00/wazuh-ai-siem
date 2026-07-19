@@ -87,6 +87,8 @@ All rules are custom-written, mapped to MITRE ATT&CK, and **validated by actuall
 
 ## 🤖 AI-Powered Components
 
+**Automated alert triage with a local LLM.** Instead of forwarding every SIEM event to a human, this lab pipes security events (DNS queries, firewall blocks) through a locally-hosted LLM (Qwen 14B) that classifies each one — malicious, tracking, or benign — before an alert is ever raised. Known-safe and already-blocked traffic is filtered out, high-confidence threats are enriched with an attack-type classification (port scan, brute force, C2 beaconing), and only actionable alerts reach Discord, where a one-click SOAR pipeline can quarantine the source at the firewall. The result: an alert stream a single analyst can actually keep up with, with graceful degradation to rule-only alerting whenever the LLM is unavailable — AI as a triage force-multiplier, not a dependency.
+
 ### 1. LLM Threat Triage (DNS + Firewall)
 Python integrations that feed security events to a locally-hosted LLM for classification before alerting:
 - **DNS analysis** ([`integrations/custom-ai-dns-discord.py`](integrations/custom-ai-dns-discord.py)) — unknown domains are AI-classified (malicious / tracking / safe); blocked and known-safe domains are skipped to prevent alert fatigue
