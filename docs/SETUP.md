@@ -1,270 +1,182 @@
-# Detailed Setup Guide
+# Setup guide
 
-This guide walks you through setting up the Wazuh AI-Powered SIEM stack step by step.
+This guide installs the components in this repository on an existing Wazuh manager. It does not install Wazuh, pfSense, AdGuard Home, n8n, Discord, or an LLM server.
 
-## Prerequisites
+## 1. Prepare the environment
 
-### Hardware Requirements
-- **Wazuh Server**: 6+ cores, 16GB+ RAM, 100GB+ disk
-- **LMStudio Server**: GPU recommended (or use Ollama with CPU)
+The automated setup requires:
 
-### Software Requirements
-- Ubuntu 24.04 LTS
-- Wazuh 4.14+ installed and running
-- Python 3.10+
-- pfSense with SSH access
-- AdGuard Home with Wazuh agent
-- n8n instance
-- Discord server with webhook
+- A running Wazuh manager with `/var/ossec` and `wazuh-manager.service`.
+- A Debian- or Ubuntu-based host with `apt`, `systemd`, and root access.
+- Access to an OpenAI-compatible chat-completions endpoint.
+- A Discord webhook URL.
 
-## Step 1: Install Wazuh
+Optional integrations additionally require:
 
-If you haven't installed Wazuh yet:
+- pfSense with SSH enabled and a table named `quarantine`.
+- AdGuard Home with its query log collected by a Wazuh agent.
+- n8n for the response workflows.
 
-```bash
-# Download and run Wazuh installer
-curl -sO https://packages.wazuh.com/4.14/wazuh-install.sh
-chmod +x wazuh-install.sh
-sudo ./wazuh-install.sh -a
+Back up the existing Wazuh configuration and custom rules before installation. The setup script copies files into `/var/ossec/etc/rules`, `/var/ossec/etc/decoders`, and `/var/ossec/integrations`, and it restarts the manager.
 
-# Note the admin password displayed at the end
-```
+### Resolve checked-in rule conflicts
 
-## Step 2: Configure pfSense Syslog
+`rules/local_rules.xml` and `rules/local_adguard_rules.xml` both define rule IDs `111001` and `111002`. The installer copies both files unchanged. Before running it, select the intended definitions or assign unique local IDs and update all dependent `<if_sid>` and integration references. Validate the resulting rule set in a staging manager.
 
-On your pfSense:
-
-1. Go to **Status > System Logs > Settings**
-2. Check **Enable Remote Logging**
-3. Set **Remote log servers**: `10.10.0.27:514` (your Wazuh IP)
-4. Check all log types you want to forward
-5. Save
-
-On Wazuh server, enable syslog receiver:
+## 2. Clone and configure the repository
 
 ```bash
-# Add to /var/ossec/etc/ossec.conf inside <ossec_config>
-sudo nano /var/ossec/etc/ossec.conf
-```
-
-Add:
-```xml
-<remote>
-  <connection>syslog</connection>
-  <port>514</port>
-  <protocol>udp</protocol>
-  <allowed-ips>10.10.0.0/23</allowed-ips>
-</remote>
-```
-
-## Step 3: Install Wazuh Agent on AdGuard
-
-On your AdGuard server:
-
-```bash
-# Download agent
-curl -so wazuh-agent.deb https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.14.2-1_amd64.deb
-
-# Install with manager IP
-sudo WAZUH_MANAGER='10.10.0.27' dpkg -i wazuh-agent.deb
-
-# Start agent
-sudo systemctl daemon-reload
-sudo systemctl enable wazuh-agent
-sudo systemctl start wazuh-agent
-```
-
-Configure agent to monitor AdGuard logs:
-
-```bash
-# Add to /var/ossec/etc/ossec.conf on AdGuard server
-sudo nano /var/ossec/etc/ossec.conf
-```
-
-Add inside `<ossec_config>`:
-```xml
-<localfile>
-  <log_format>json</log_format>
-  <location>/opt/AdGuardHome/data/querylog.json</location>
-</localfile>
-```
-
-## Step 4: Set Up LMStudio
-
-1. Download LMStudio from https://lmstudio.ai/
-2. Install a model (recommended: `qwen/qwen3-14b` or `llama3-8b`)
-3. Start the local server on port 1234
-4. Note the server IP (e.g., `10.10.0.136:1234`)
-
-Test connectivity:
-```bash
-curl http://10.10.0.136:1234/v1/models
-```
-
-## Step 5: Create SSH Key for pfSense
-
-```bash
-# Generate key
-sudo ssh-keygen -t ed25519 -f /etc/ssh/pfsense_automation -N ""
-
-# Copy public key to pfSense
-cat /etc/ssh/pfsense_automation.pub
-# Add this to pfSense: System > User Manager > admin > Authorized Keys
-
-# Test connection
-ssh -i /etc/ssh/pfsense_automation -p 2020 admin@10.10.0.1 "echo success"
-```
-
-## Step 6: Set Up Discord Webhook
-
-1. In Discord, go to your server
-2. **Server Settings > Integrations > Webhooks**
-3. Create new webhook
-4. Copy the webhook URL
-
-## Step 7: Set Up n8n
-
-1. Install n8n or use n8n cloud
-2. Create SSH credential for Wazuh server:
-   - Name: `Wazuh Server`
-   - Host: `10.10.0.27`
-   - Port: `22`
-   - Username: `root`
-   - Authentication: SSH Key
-   - Private Key: contents of `/etc/ssh/pfsense_automation`
-
-3. Import workflows from `n8n-workflows/` directory
-4. Update Discord webhook URL in each workflow
-5. Activate all workflows
-
-## Step 8: Run Setup Script
-
-```bash
-# Clone repo
-git clone https://github.com/Trac3er00/wazuh-ai-siem.git
+git clone https://github.com/trac3r00/wazuh-ai-siem.git
 cd wazuh-ai-siem
-
-# Edit configuration in setup.sh
-nano scripts/setup.sh
-
-# Run setup
-chmod +x scripts/setup.sh
-sudo ./scripts/setup.sh
 ```
 
-## Step 9: Add Integrations to ossec.conf
+Edit the configuration block near the top of `scripts/setup.sh`:
+
+| Setting | Purpose |
+| --- | --- |
+| `DISCORD_WEBHOOK` | Destination for integration notifications |
+| `N8N_BASE_URL` | Base URL ending in `/webhook`; workflow paths are appended by the integrations |
+| `LMSTUDIO_URL` | Complete OpenAI-compatible `/v1/chat/completions` URL |
+| `PFSENSE_HOST` | pfSense SSH host used by the quarantine helper |
+| `PFSENSE_SSH_PORT` | pfSense SSH port |
+| `WAZUH_API_PASS` | Password used by the REST/chat service to authenticate to the local Wazuh API |
+
+The repository has no `.env` support. The installer substitutes these values into installed copies of the scripts. Do not commit configured credentials or webhook URLs.
+
+The default model name is configured separately as `LMSTUDIO_MODEL` in:
+
+- `integrations/custom-ai-dns-discord.py`
+- `integrations/custom-pfsense-ai-discord.py`
+- `services/threat_hunter.py`
+
+If the OpenAI-compatible server exposes a different model identifier, update these values before installation or update the installed copies afterward.
+
+## 3. Prepare pfSense automation
+
+Skip this section when quarantine workflows are not required.
+
+The quarantine helper uses the following settings in `scripts/pfsense-quarantine.sh`:
+
+- `PFSENSE_HOST`
+- `PFSENSE_SSH_PORT`
+- `PFSENSE_USER`
+- `SSH_KEY` (default: `/etc/ssh/pfsense_automation`)
+- `PROTECTED_IPS`
+
+Create the SSH key expected by the script:
 
 ```bash
-sudo nano /var/ossec/etc/ossec.conf
+sudo ssh-keygen -t ed25519 -f /etc/ssh/pfsense_automation -N ""
+sudo cat /etc/ssh/pfsense_automation.pub
 ```
 
-Add inside `<ossec_config>`:
+Add the public key to the configured pfSense account. In pfSense, create a table named `quarantine` and a firewall rule that blocks sources in that table. Review `PROTECTED_IPS` before deployment so management and infrastructure addresses cannot be blocked.
 
-```xml
-<!-- DNS AI Integration -->
-<integration>
-  <name>custom-ai-dns-discord</name>
-  <hook_url>placeholder</hook_url>
-  <level>3</level>
-  <rule_id>111001</rule_id>
-  <alert_format>json</alert_format>
-</integration>
+The script runs `pfctl -t quarantine` over SSH and disables strict host-key checking. Review that behavior before using it outside an isolated environment.
 
-<!-- pfSense AI Integration -->
-<integration>
-  <name>custom-pfsense-ai-discord</name>
-  <hook_url>placeholder</hook_url>
-  <level>8</level>
-  <rule_id>112010,112011</rule_id>
-  <alert_format>json</alert_format>
-</integration>
+## 4. Run the installer
 
-<!-- SSH Integration -->
-<integration>
-  <name>custom-ssh-discord</name>
-  <hook_url>placeholder</hook_url>
-  <level>6</level>
-  <group>sshd,authentication_failed</group>
-  <alert_format>json</alert_format>
-</integration>
+```bash
+sudo bash scripts/setup.sh
 ```
 
-Restart Wazuh:
+The installer performs these repository-defined actions:
+
+1. Installs Python virtual-environment and pip support with `apt`.
+2. Copies the three Wazuh-to-Discord integrations and creates extensionless Wazuh wrappers.
+3. Copies the pfSense, AdGuard, and local suppression rules plus the AdGuard decoder.
+4. Creates `/var/ossec/etc/lists/ignored-domains.txt`.
+5. Creates `/opt/threat-hunter-venv` and installs the Threat Hunter service on port `8080`.
+6. Creates `/opt/wazuh-mcp/venv` and installs the REST/chat service on port `8081`.
+7. Installs `/usr/local/bin/pfsense-quarantine.sh`.
+8. Enables Wazuh JSON archives and starts the two systemd services.
+
+The optional Magika scanner and `rules/magika_masquerade_rules.xml` are not installed by this script.
+
+## 5. Configure Wazuh inputs and integrations
+
+Merge only the required sections from [`config/ossec.conf.example`](../config/ossec.conf.example) into the existing `/var/ossec/etc/ossec.conf` inside its `<ossec_config>` element.
+
+The example contains:
+
+- A UDP `514` remote syslog listener for pfSense.
+- `logall` and `logall_json`, required by the Threat Hunter's archive reader.
+- DNS integration rule ID `111001`.
+- pfSense integration rule IDs `112010` and `112011`.
+- An SSH integration for the `sshd,authentication_failed` group at level `6` or higher.
+
+The sample DNS integration targets rule `111001`. In `rules/local_adguard_rules.xml`, that rule represents a filtered query, while `custom-ai-dns-discord.py` exits without alerting when `IsFiltered` is true. After resolving the duplicate IDs, point the integration at a reviewed rule that supplies unfiltered DNS events if AI triage of unknown domains is required. Confirm the resulting alert JSON contains `QH`, `IP`, and `IsFiltered` before enabling Discord delivery.
+
+Replace the example's allowed network with the actual pfSense source network. Validate the merged Wazuh configuration using the tooling supplied by the installed Wazuh version before restarting:
+
 ```bash
 sudo systemctl restart wazuh-manager
 ```
 
-## Step 10: Create pfSense Firewall Rule
+### AdGuard collection
 
-On pfSense:
+The checked-in decoder expects AdGuard query data containing `QH`, `QT`, `IP`, and `IsFiltered`. Configure the Wazuh agent on the AdGuard host to collect the actual AdGuard query log as JSON. The default AdGuard log location can vary, so use the path configured on that host rather than assuming one.
 
-1. Go to **Firewall > Aliases > Tables**
-2. Create table named `quarantine`
-3. Go to **Firewall > Rules > WAN** (or LAN)
-4. Add rule:
-   - Action: Block
-   - Source: Table `quarantine`
-   - Destination: Any
-   - Description: Quarantine blocked devices
+### pfSense collection
 
-## Step 11: Verify Services
+Configure pfSense remote logging to send the selected log categories to the Wazuh manager on UDP `514`. Restrict the Wazuh `<allowed-ips>` value to the required source network.
+
+## 6. Configure n8n workflows
+
+Import the three JSON files from `n8n-workflows/`:
+
+| Workflow | Webhook path | Action |
+| --- | --- | --- |
+| `wazuh-quarantine-workflow.json` | `wazuh-quarantine` | Runs `pfsense-quarantine.sh block` over SSH |
+| `wazuh-unquarantine-workflow.json` | `wazuh-unquarantine` | Runs `pfsense-quarantine.sh unblock` over SSH |
+| `wazuh-ignore-workflow.json` | `wazuh-ignore` | Appends a domain to Wazuh's ignored-domain list |
+
+For each imported workflow:
+
+1. Select an n8n SSH credential that can execute the checked-in command on the Wazuh host.
+2. Replace `YOUR_DISCORD_WEBHOOK_HERE` in the confirmation request.
+3. Confirm that the production webhook URL matches `N8N_BASE_URL` plus the workflow path.
+4. Review the command and query parameters before activation.
+
+The workflow commands interpolate webhook query values into shell commands. Do not expose these webhooks to untrusted callers.
+
+## 7. Verify the installation
+
+Check the services and their root endpoints:
 
 ```bash
-# Check all services
 sudo systemctl status wazuh-manager
 sudo systemctl status wazuh-threat-hunter
 sudo systemctl status wazuh-mcp
-
-# Test Threat Hunter
 curl http://localhost:8080/
-
-# Test MCP Server
 curl http://localhost:8081/
-
-# Test Chat UI
-curl http://localhost:8081/ui
 ```
 
-## Step 12: Test Integrations
+Submit a minimal Threat Hunter query after Wazuh archives contain data:
 
 ```bash
-# Test SSH brute force detection
-# From another machine:
-ssh fakeuser@wazuh-server
-# Enter wrong password 6 times
-
-# Check Discord for alert
+curl --request POST http://localhost:8080/query \
+  --header 'Content-Type: application/json' \
+  --data '{"question":"Summarize recent high-level alerts","hours":24,"max_results":10}'
 ```
 
-## Troubleshooting
+Run the repository's installed-system checks:
 
-### No alerts in Discord
 ```bash
-# Check debug logs
-cat /tmp/ai-dns-debug.log
-cat /tmp/pfsense-ai-debug.log
-cat /tmp/ssh-discord-debug.log
-
-# Check Wazuh logs
-sudo tail -f /var/ossec/logs/ossec.log
+sudo bash scripts/test-integrations.sh
 ```
 
-### Threat Hunter not starting
+This script expects every core service, archive logging, integration file, pfSense helper, SSH key, and external AI endpoint to be configured. It is not a unit-test suite for an uninstalled checkout.
+
+## 8. Install the optional Magika scanner
+
 ```bash
-# Check logs
-sudo journalctl -u wazuh-threat-hunter -f
-
-# Reinstall dependencies
-sudo /opt/threat-hunter-venv/bin/pip install --upgrade langchain langchain-community
+python3 -m pip install magika
+python3 integrations/selftest_masquerade.py
+python3 integrations/file_masquerade_scan.py /path/to/scan \
+  --json-out /var/log/masquerade.json
 ```
 
-### pfSense quarantine not working
-```bash
-# Test SSH connection
-ssh -i /etc/ssh/pfsense_automation -p 2020 admin@10.10.0.1
+Copy `rules/magika_masquerade_rules.xml` into the Wazuh rules directory and add a JSON `<localfile>` for `/var/log/masquerade.json`. The exact input block is documented in comments at the top of the rule file.
 
-# Test quarantine manually
-/usr/local/bin/pfsense-quarantine.sh block 192.168.99.99
-/usr/local/bin/pfsense-quarantine.sh list
-/usr/local/bin/pfsense-quarantine.sh unblock 192.168.99.99
-```
+For failures after installation, see [Troubleshooting](troubleshooting.md).
