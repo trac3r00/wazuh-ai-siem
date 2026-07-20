@@ -1,241 +1,200 @@
-# 🛡️ Wazuh AI-Powered SIEM & Detection Engineering Lab
+# Wazuh AI SIEM
 
-> An end-to-end security operations project I designed, built, and operate on my own homelab — combining a production-grade **Wazuh SIEM** with **local-LLM threat analysis**, **automated response (SOAR)**, and a full **detection engineering lab** validated against real attack simulations.
+Local-LLM alert triage, threat hunting, detection rules, and response automation for a Wazuh deployment.
 
-![Wazuh](https://img.shields.io/badge/Wazuh-4.14.2-blue)
-![Python](https://img.shields.io/badge/Python-3.10+-green)
-![MITRE ATT&CK](https://img.shields.io/badge/MITRE%20ATT%26CK-12+%20techniques-red)
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+[![Security workflow](https://github.com/trac3r00/wazuh-ai-siem/actions/workflows/security.yml/badge.svg)](https://github.com/trac3r00/wazuh-ai-siem/actions/workflows/security.yml)
+![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
----
+## Overview
 
-## 📌 What This Project Demonstrates
+This repository contains deployable extensions for an existing Wazuh manager. It adds custom pfSense and AdGuard detection content, Discord alert integrations, an LLM-backed archive search service, a REST and chat gateway, n8n response workflows, and an optional Magika-based file masquerade scanner.
 
-| Area | What I Did |
-|------|-----------|
-| **SIEM Engineering** | Deployed and tuned Wazuh 4.14 (Manager + Indexer + Dashboard) from scratch; ingested logs from Windows (Sysmon), Linux, pfSense firewall, and AdGuard DNS |
-| **Detection Engineering** | Wrote 11+ custom detection rules mapped to MITRE ATT&CK, validated each with real attack simulations (Atomic Red Team, Impacket, Mimikatz) |
-| **AI Integration** | Built Python integrations that pipe security events through a locally-hosted LLM (Qwen 14B) for threat triage, plus a natural-language log search service (FAISS vector store + REST API) |
-| **SOAR / Automated Response** | One-click quarantine from Discord alerts → n8n workflows → pfSense firewall blocks; native Wazuh active response with a custom universal iptables wrapper |
-| **Adversary Simulation** | Deployed GOAD Active Directory lab and executed Kerberoasting, AS-REP Roasting, Pass-the-Hash, credential dumping — then engineered the detections to catch them |
-| **Alert Engineering** | Noise-reduction ruleset that suppresses routine events while escalating real attacks — the difference between a dashboard nobody reads and alerts that matter |
+The project is intended for a controlled lab or self-managed environment. The setup script installs repository components into system locations and restarts Wazuh; review all configuration values and rules before running it.
 
----
+## Features
 
-## 📐 Architecture
+- pfSense rules for authentication failures, repeated firewall blocks, VPN events, configuration changes, and IDS/IPS alerts.
+- AdGuard decoder and rules for DNS queries, filtered requests, suspicious TLDs, and high query volume.
+- DNS, pfSense, and SSH integrations that send selected Wazuh alerts to Discord.
+- Local-LLM classification for DNS and pfSense events through an OpenAI-compatible chat-completions endpoint.
+- Natural-language search over Wazuh JSON archives using sentence-transformer embeddings and FAISS.
+- REST endpoints and a browser UI for agents, alerts, summaries, and threat-hunter queries.
+- Importable n8n workflows for quarantine, unquarantine, and ignored-domain actions.
+- Content-based file masquerade detection with Magika and Wazuh rules mapped to ATT&CK T1036.008.
+- Windows and active-response examples under `detection-lab/`.
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              WAZUH SERVER                                │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │   Wazuh     │  │   Threat    │  │    MCP      │  │   Discord   │    │
-│  │   Manager   │  │   Hunter    │  │   Server    │  │   Alerts    │    │
-│  │   :55000    │  │   :8080     │  │   :8081     │  │             │    │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘    │
-│         │                │                │                │           │
-│         └────────────────┴────────────────┴────────────────┘           │
-│                                   │                                     │
-└───────────────────────────────────┼─────────────────────────────────────┘
-                                    │
-        ┌───────────────────────────┼───────────────────────────┐
-        │                           │                           │
-        ▼                           ▼                           ▼
-┌───────────────┐          ┌───────────────┐          ┌───────────────┐
-│   AdGuard     │          │   pfSense     │          │   Local LLM   │
-│   DNS Agent   │          │   Firewall    │          │   Server      │
-│   (Agent)     │          │   (Syslog)    │          │   (Qwen 14B)  │
-└───────────────┘          └───────────────┘          └───────────────┘
-                                    │
-                                    ▼
-                           ┌───────────────┐
-                           │     n8n       │
-                           │  Automation   │
-                           │  (Webhooks)   │
-                           └───────────────┘
+## Architecture
+
+```text
+AdGuard logs ── Wazuh agent ─┐
+                             │
+pfSense syslog ──────────────┼──> Wazuh manager ──> Python integrations ──> Discord
+                             │          │                       │
+Endpoint events ─ Wazuh agent┘          │                       └──> n8n webhooks
+                                        │                                  │
+                                        │                                  └──> pfSense quarantine script
+                                        │
+                                        ├── JSON archives ──> Threat Hunter :8080 ──> local LLM
+                                        │                         │
+                                        └── Wazuh API :55000 <── REST/chat service :8081
 ```
 
-**Stack:** Proxmox VE on Dell R720 · Wazuh 4.14.2 · Python 3.10 · LMStudio (Qwen 14B) · n8n · pfSense · AdGuard Home · Discord
+The service named `wazuh-mcp` exposes a REST API and web UI. The checked-in implementation does not implement the Model Context Protocol transport.
 
----
+## Requirements
 
-## 🎯 Detection Engineering Highlights
+The automated installer assumes:
 
-All rules are custom-written, mapped to MITRE ATT&CK, and **validated by actually executing the attack** in an isolated lab — not just copied from a blog post.
+- A running Wazuh manager with `/var/ossec` available.
+- A Debian- or Ubuntu-based host with `apt`, `systemd`, and root access.
+- Python 3 and the `python3.12-venv` package available from the configured package repositories.
+- An OpenAI-compatible `/v1/chat/completions` endpoint for AI analysis.
+- A Discord webhook for notifications.
 
-| Rule ID | Detection | MITRE ATT&CK | Validation |
-|---------|-----------|--------------|------------|
-| 100001–2 | Mimikatz (filename + command-line) | [T1003](https://attack.mitre.org/techniques/T1003/) | ✅ Executed Mimikatz |
-| 100003 | Encoded PowerShell commands | [T1059.001](https://attack.mitre.org/techniques/T1059/001/) | ✅ Atomic Red Team |
-| 100004 | PowerShell download cradles | [T1059.001](https://attack.mitre.org/techniques/T1059/001/) | ✅ Live simulation |
-| 100005 | Local account creation | [T1136.001](https://attack.mitre.org/techniques/T1136/001/) | ✅ Atomic Red Team |
-| 100006 | Scheduled task persistence | [T1053.005](https://attack.mitre.org/techniques/T1053/005/) | ✅ Atomic Red Team |
-| 100007–8 | Defender tampering / security service kill | [T1562.001](https://attack.mitre.org/techniques/T1562/001/) | ✅ Live simulation |
-| 100009 | Kerberoasting (RC4 ticket requests) | [T1558.003](https://attack.mitre.org/techniques/T1558/003/) | ✅ Impacket GetUserSPNs |
-| 100010 | AS-REP Roasting (no pre-auth) | [T1558.004](https://attack.mitre.org/techniques/T1558/004/) | ✅ Impacket GetNPUsers |
-| 100011 | Malware file drop (FIM) | [T1105](https://attack.mitre.org/techniques/T1105/) | ✅ Live simulation |
-| 92652* | Pass-the-Hash (NTLM Logon Type 3) | [T1550.002](https://attack.mitre.org/techniques/T1550/002/) | ✅ Lateral movement sim |
+pfSense SSH access, n8n, and AdGuard Home are required only for their corresponding integrations. The setup script does not install those external systems.
 
-*\*Built-in rule, validated against live Pass-the-Hash execution in the AD lab.*
+## Installation
 
-**Notable engineering work:**
-- **Sysmon decoder debugging** — custom rules initially failed silently because logs were decoded as generic `json` instead of `windows_eventchannel`. Root-caused via Wazuh archives (`logall_json`) and engineered *self-sufficient rules* that match `win.system.providerName` + `eventID` directly, decoupling detection logic from decoder quirks.
-- **Active response field mismatch** — Wazuh's default `firewall-drop` expects `srcip` but Suricata emits `src_ip`, causing silent automation failure. Built a universal iptables wrapper that extracts the IP from raw STDIN regardless of input format. Result: C2 user-agent detections now trigger instant firewall blocks.
-
-→ Full lab journal with day-by-day progress: [`detection-lab/`](detection-lab/)
-
----
-
-## 🤖 AI-Powered Components
-
-**Automated alert triage with a local LLM.** Instead of forwarding every SIEM event to a human, this lab pipes security events (DNS queries, firewall blocks) through a locally-hosted LLM (Qwen 14B) that classifies each one — malicious, tracking, or benign — before an alert is ever raised. Known-safe and already-blocked traffic is filtered out, high-confidence threats are enriched with an attack-type classification (port scan, brute force, C2 beaconing), and only actionable alerts reach Discord, where a one-click SOAR pipeline can quarantine the source at the firewall. The result: an alert stream a single analyst can actually keep up with, with graceful degradation to rule-only alerting whenever the LLM is unavailable — AI as a triage force-multiplier, not a dependency.
-
-### 1. LLM Threat Triage (DNS + Firewall)
-Python integrations that feed security events to a locally-hosted LLM for classification before alerting:
-- **DNS analysis** ([`integrations/custom-ai-dns-discord.py`](integrations/custom-ai-dns-discord.py)) — unknown domains are AI-classified (malicious / tracking / safe); blocked and known-safe domains are skipped to prevent alert fatigue
-- **Firewall analysis** ([`integrations/custom-pfsense-ai-discord.py`](integrations/custom-pfsense-ai-discord.py)) — triggered on 20+ blocks/minute from a single IP; AI classifies attack type (port scan, brute force, etc.) with graceful fallback when the LLM is unavailable
-
-### 2. Natural-Language Threat Hunting
-[`services/threat_hunter.py`](services/threat_hunter.py) — query security logs in plain English via a FAISS vector store + REST API:
-
-> *"Were there any SSH brute force attacks today?"*
-> *"What IPs triggered the most alerts?"*
-
-### 3. MCP / Chat API Server
-[`services/mcp_server.py`](services/mcp_server.py) — REST API + web UI for SIEM interaction: agent status, alert summaries, conversational log queries.
-
-### 4. AI File-Masquerade Detection (Magika)
-[`integrations/file_masquerade_scan.py`](integrations/file_masquerade_scan.py) — uses Google's **[Magika](https://github.com/google/magika)** deep-learning content classifier to identify a file's *true* type from its bytes and flag files whose real content contradicts their extension — the classic dropper/webshell masquerade (a shell script saved as `report.csv`, an ELF disguised as `readme.txt`). Emits Wazuh-ready JSON events mapped to **MITRE ATT&CK [T1036.008](https://attack.mitre.org/techniques/T1036/008/)** (Masquerade File Type), consumed by [`rules/magika_masquerade_rules.xml`](rules/magika_masquerade_rules.xml) (levels 8→14, escalating for native executables in web-served dirs). Point it at an upload dir on a cron/inotify trigger:
-
-```bash
-file_masquerade_scan.py /var/www/uploads --json-out /var/log/masquerade.json
-```
-
-A self-test ([`integrations/selftest_masquerade.py`](integrations/selftest_masquerade.py)) verifies detection on synthetic samples and runs in CI.
-
----
-
-## ⚡ Automated Response (SOAR)
-
-Discord alerts include **one-click response buttons** wired to n8n workflows:
-
-| Action | Flow |
-|--------|------|
-| 🔒 Quarantine | Discord button → n8n webhook → SSH to pfSense → block IP at firewall |
-| 🔓 Unquarantine | Discord button → n8n webhook → release IP |
-| 🔇 Ignore domain | Discord button → n8n webhook → append to Wazuh CDB safe list |
-
-Protected-IP guardrails prevent the automation from ever quarantining critical infrastructure.
-
-```
-DNS Query → AdGuard
-  ├── Blocked? → Skip (no alert)
-  └── Not blocked?
-        ├── Known safe / user-ignored? → Skip
-        └── Unknown → AI Analysis
-              ├── Safe/tracking? → Skip
-              └── Malicious? → Discord Alert
-                    ├── [Quarantine] → Block IP
-                    └── [Ignore] → Add to safe list
-```
-
----
-
-## 🔇 Noise Reduction
-
-A SIEM that alerts on everything alerts on nothing. Custom suppression ruleset:
-
-| Event | Action |
-|-------|--------|
-| pfSense single blocks | Suppressed |
-| AdGuard routine blocked queries | Suppressed |
-| PAM session open/close | Suppressed |
-| Sudo by trusted users | Suppressed |
-| SSH from internal IPs | Suppressed |
-| **SSH brute force (5+ failures)** | **Alert — level 10** |
-| **pfSense attack pattern (20+ blocks/min)** | **Alert — level 8+** |
-
----
-
-## 📁 Repository Structure
-
-```
-wazuh-ai-siem/
-├── integrations/            # AI-powered Wazuh→Discord integrations (DNS, pfSense, SSH)
-├── services/                # Threat Hunter (NL search) + MCP server + systemd units
-├── rules/                   # Custom detection & noise-reduction rules (pfSense, AdGuard)
-├── decoders/                # Custom log decoders (AdGuard)
-├── scripts/                 # Setup, pfSense quarantine, integration tests
-├── n8n-workflows/           # Quarantine / unquarantine / ignore automation (importable JSON)
-├── config/                  # Example ossec.conf
-├── docs/                    # Setup guide + troubleshooting
-└── detection-lab/           # Detection engineering lab: AD attack sims, Sysmon rules,
-    ├── README.md            #   day-by-day lab journal (GOAD, Kerberoasting, FIM, ...)
-    ├── deployment.md        #   full infrastructure deployment guide
-    ├── rules/windows/       #   custom Sysmon / Mimikatz detection rules
-    └── active-response/     #   universal firewall-drop wrapper + manager config
-```
-
----
-
-## 🚀 Quick Start
+Clone the repository and review the installer:
 
 ```bash
 git clone https://github.com/trac3r00/wazuh-ai-siem.git
 cd wazuh-ai-siem
-chmod +x scripts/setup.sh
-sudo ./scripts/setup.sh
 ```
 
-**Prerequisites:** Wazuh 4.14+ on Ubuntu 24.04 (6+ cores, 16GB+ RAM) · pfSense with SSH access · AdGuard Home · LMStudio or Ollama · n8n · Discord webhook
-
-Detailed instructions: [`docs/SETUP.md`](docs/SETUP.md) · [`docs/troubleshooting.md`](docs/troubleshooting.md)
-
-### Configuration
-
-Create `/etc/wazuh-ai-siem.env`:
+Edit the configuration block near the top of `scripts/setup.sh`, then run:
 
 ```bash
-LMSTUDIO_URL=http://YOUR_LLM_HOST:1234/v1/chat/completions
-LMSTUDIO_MODEL=qwen/qwen3-14b
-DISCORD_WEBHOOK=https://discord.com/api/webhooks/YOUR_WEBHOOK
-N8N_BASE_URL=https://n8n.yourserver.com/webhook
-PFSENSE_HOST=YOUR_PFSENSE_IP
-PFSENSE_SSH_PORT=22
-PFSENSE_SSH_KEY=/etc/ssh/pfsense_automation
-WAZUH_API_USER=wazuh-wui
-WAZUH_API_PASS=your_api_password
+sudo bash scripts/setup.sh
 ```
 
----
+The script installs Python environments under `/opt`, copies Wazuh integrations, rules, and the AdGuard decoder under `/var/ossec`, installs two systemd services, enables JSON archive logging, and installs `/usr/local/bin/pfsense-quarantine.sh`.
 
-## 🧪 Testing
+Before running it, reconcile the overlapping rule IDs `111001` and `111002` in `rules/local_rules.xml` and `rules/local_adguard_rules.xml`. The installer copies both files unchanged, so they should not be enabled together until the local IDs and parent relationships have been reviewed.
+
+Installation is not complete until the relevant `<integration>` and log-source blocks are added to `/var/ossec/etc/ossec.conf`. Use [`config/ossec.conf.example`](config/ossec.conf.example) as a reference and follow the [setup guide](docs/SETUP.md).
+
+## Configuration
+
+Configuration is stored directly in the checked-in scripts; there is no `.env` loader. Do not commit real credentials after editing these values.
+
+| File | Effective settings |
+| --- | --- |
+| `scripts/setup.sh` | `DISCORD_WEBHOOK`, `N8N_BASE_URL`, `LMSTUDIO_URL`, `PFSENSE_HOST`, `PFSENSE_SSH_PORT`, `WAZUH_API_PASS` |
+| `integrations/custom-ai-dns-discord.py` | `LMSTUDIO_URL`, `LMSTUDIO_MODEL`, `DISCORD_WEBHOOK`, `N8N_BASE_URL`, `IGNORED_DOMAINS_FILE` |
+| `integrations/custom-pfsense-ai-discord.py` | `LMSTUDIO_URL`, `LMSTUDIO_MODEL`, `DISCORD_WEBHOOK`, `N8N_BASE_URL`, safe IP patterns, skipped ports |
+| `integrations/custom-ssh-discord.py` | `DISCORD_WEBHOOK`, `N8N_BASE_URL` |
+| `services/threat_hunter.py` | `LMSTUDIO_URL`, `LMSTUDIO_MODEL`, `ARCHIVES_PATH` |
+| `services/mcp_server.py` | `WAZUH_API_URL`, `WAZUH_USER`, `WAZUH_PASS`, `THREAT_HUNTER_URL` |
+| `scripts/pfsense-quarantine.sh` | `PFSENSE_HOST`, `PFSENSE_SSH_PORT`, `PFSENSE_USER`, `SSH_KEY`, `PROTECTED_IPS`, `LOG_FILE` |
+
+The installer substitutes the Discord webhook, n8n base URL, LLM URL, pfSense host and port, and Wazuh API password. Change model names, API usernames, protected IP ranges, and other settings in the destination scripts after installation when the defaults do not match your environment.
+
+The n8n workflow JSON files contain placeholder Discord URLs and require an n8n SSH credential to be selected after import.
+
+## Usage
+
+### Threat Hunter
+
+Check service state and submit a natural-language query:
 
 ```bash
-# Test the AI DNS integration
-sudo python3 /var/ossec/integrations/custom-ai-dns-discord.py /tmp/test.alert
+curl http://localhost:8080/
 
-# Test natural-language threat hunting
-curl -X POST http://localhost:8080/query \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Were there any SSH attacks?", "hours": 24}'
+curl --request POST http://localhost:8080/query \
+  --header 'Content-Type: application/json' \
+  --data '{"question":"Show recent SSH authentication failures","hours":24,"max_results":10}'
+```
 
-# Test the MCP server
+Refresh the in-memory vector store or inspect its statistics:
+
+```bash
+curl --request POST 'http://localhost:8080/refresh?hours=24'
+curl http://localhost:8080/stats
+```
+
+### REST and chat service
+
+```bash
+curl http://localhost:8081/agents
+curl 'http://localhost:8081/alerts?limit=20&level=8'
 curl http://localhost:8081/alerts/summary
-
-# Full integration test suite
-./scripts/test-integrations.sh
 ```
 
----
+Open `http://localhost:8081/ui` in a browser for the included chat interface. The service binds to all interfaces; restrict access at the host or network boundary before using it outside a trusted network.
 
-## 📄 License
+### pfSense quarantine helper
 
-MIT — see [LICENSE](LICENSE).
+After configuring the pfSense host, SSH key, protected addresses, and a pfSense table named `quarantine`:
 
-## 🙏 Acknowledgments
+```bash
+sudo /usr/local/bin/pfsense-quarantine.sh block 192.0.2.50 "investigation"
+sudo /usr/local/bin/pfsense-quarantine.sh list
+sudo /usr/local/bin/pfsense-quarantine.sh unblock 192.0.2.50
+```
 
-[Wazuh](https://wazuh.com/) · [GOAD](https://github.com/Orange-Cyberdefense/GOAD) · [Atomic Red Team](https://github.com/redcanaryco/atomic-red-team) · [LMStudio](https://lmstudio.ai/) · [n8n](https://n8n.io/) · [pfSense](https://www.pfsense.org/) · [AdGuard Home](https://adguard.com/en/adguard-home/overview.html) · [SwiftOnSecurity Sysmon config](https://github.com/SwiftOnSecurity/sysmon-config)
+Use only an address reserved for testing when validating block and unblock behavior.
 
----
+### File masquerade scanner
 
-*Built and operated by [@trac3r00](https://github.com/trac3r00) — every detection in this repo was validated against a real attack execution, not just theory.*
+The main setup script does not install this optional component.
+
+```bash
+python3 -m pip install magika
+python3 integrations/file_masquerade_scan.py /path/to/scan \
+  --json-out /var/log/masquerade.json \
+  --fail-on-finding
+```
+
+To ingest its events, copy `rules/magika_masquerade_rules.xml` to the Wazuh rules directory and configure a JSON `<localfile>` for `/var/log/masquerade.json`, as shown in that rule file.
+
+## Development and verification
+
+The integration verification script expects a fully installed system with Wazuh, both systemd services, archive data, the pfSense SSH key, and the configured external services:
+
+```bash
+sudo bash scripts/test-integrations.sh
+```
+
+The Magika scanner has a self-contained synthetic test used by CI:
+
+```bash
+python3 -m pip install magika
+python3 integrations/selftest_masquerade.py
+```
+
+The GitHub Actions `security` workflow runs this self-test on Python 3.12 and performs an advisory OSV dependency scan.
+
+## Project structure
+
+```text
+config/             Example Wazuh configuration additions
+decoders/           AdGuard decoder
+detection-lab/      Windows rule and active-response lab artifacts
+docs/               Installation and troubleshooting guides
+integrations/       Wazuh alert integrations and Magika scanner
+n8n-workflows/      Importable response workflow definitions
+rules/              Wazuh detection and suppression rules
+scripts/            Installer, verification, and quarantine scripts
+services/           FastAPI services and systemd units
+```
+
+## Security considerations
+
+- Replace every placeholder before deployment, but keep credentials out of version control.
+- Review `rules/local_rules.xml` for environment-specific trusted users and networks before copying it to Wazuh.
+- Reconcile duplicate local rule IDs before installation. The checked-in AdGuard integration example also targets rule `111001`, while the DNS integration skips events whose `IsFiltered` value is true.
+- The APIs allow cross-origin requests and do not implement application-level authentication. Limit their network exposure.
+- The quarantine script disables SSH host-key checking. Use it only in a controlled environment after reviewing the target and key settings.
+- Treat LLM output as analyst context, not as a trusted authorization decision.
+
+## Documentation
+
+- [Setup guide](docs/SETUP.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Detection lab](detection-lab/README.md)
+
+## License
+
+Licensed under the [MIT License](LICENSE). Copyright © 2026 Trac3er00.
