@@ -1,0 +1,101 @@
+<!--
+  Wazuh AI SIEM - Cowrie SSH/Telnet honeypot rules
+  Location: /var/ossec/etc/rules/cowrie_honeypot_rules.xml
+
+  Consumes Cowrie's native JSON log (var/log/cowrie/cowrie.json). Wazuh's
+  built-in JSON decoder extracts the fields, so no custom decoder is needed.
+
+  Ingest side (ossec.conf on the agent that runs Cowrie):
+    <localfile>
+      <log_format>json</log_format>
+      <location>/home/cowrie/cowrie/var/log/cowrie/cowrie.json</location>
+    </localfile>
+
+  Nothing legitimate talks to a honeypot, so every event is suspicious by
+  definition. Descriptions never echo attacker-supplied passwords.
+  See docs/honeypot-integration.md.
+-->
+
+<group name="honeypot,cowrie,">
+
+  <!-- Base rule: any Cowrie event. -->
+  <rule id="100980" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="eventid">^cowrie.</field>
+    <description>Cowrie honeypot: $(eventid) from $(src_ip)</description>
+    <group>honeypot,</group>
+  </rule>
+
+  <rule id="100981" level="5">
+    <if_sid>100980</if_sid>
+    <field name="eventid">^cowrie.session.connect$</field>
+    <description>Honeypot connection from $(src_ip) to port $(dst_port)</description>
+    <mitre>
+      <id>T1595</id>
+    </mitre>
+    <group>honeypot,recon,</group>
+  </rule>
+
+  <rule id="100982" level="6">
+    <if_sid>100980</if_sid>
+    <field name="eventid">^cowrie.login.failed$</field>
+    <description>Honeypot login failed for user '$(username)' from $(src_ip)</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>honeypot,authentication_failed,</group>
+  </rule>
+
+  <rule id="100983" level="10" frequency="8" timeframe="120">
+    <if_matched_sid>100982</if_matched_sid>
+    <same_field>src_ip</same_field>
+    <description>Honeypot brute force: repeated login attempts from $(src_ip)</description>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+    <group>honeypot,authentication_failures,attack,</group>
+  </rule>
+
+  <rule id="100984" level="12">
+    <if_sid>100980</if_sid>
+    <field name="eventid">^cowrie.login.success$</field>
+    <description>Honeypot login accepted for user '$(username)' from $(src_ip): attacker is in the decoy shell</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>honeypot,authentication_success,attack,</group>
+  </rule>
+
+  <rule id="100985" level="10">
+    <if_sid>100980</if_sid>
+    <field name="eventid">^cowrie.command.input$</field>
+    <description>Honeypot command from $(src_ip): $(input)</description>
+    <mitre>
+      <id>T1059.004</id>
+    </mitre>
+    <group>honeypot,attack,</group>
+  </rule>
+
+  <!-- Commands that fetch or stage a payload. -->
+  <rule id="100986" level="13">
+    <if_sid>100985</if_sid>
+    <field name="input">wget |curl |tftp |ftpget |chmod +x|base64 -d</field>
+    <description>Honeypot payload staging from $(src_ip): $(input)</description>
+    <mitre>
+      <id>T1105</id>
+      <id>T1059.004</id>
+    </mitre>
+    <group>honeypot,attack,malware,</group>
+  </rule>
+
+  <rule id="100987" level="13">
+    <if_sid>100980</if_sid>
+    <field name="eventid">^cowrie.session.file_download$|^cowrie.session.file_upload$</field>
+    <description>Honeypot captured a file from $(src_ip) (sha256 $(shasum))</description>
+    <mitre>
+      <id>T1105</id>
+    </mitre>
+    <group>honeypot,attack,malware,</group>
+  </rule>
+
+</group>

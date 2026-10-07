@@ -22,6 +22,8 @@ The project is intended for a controlled lab or self-managed environment. The se
 - REST endpoints and a browser UI for agents, alerts, summaries, and threat-hunter queries.
 - Importable n8n workflows for quarantine, unquarantine, and ignored-domain actions.
 - Content-based file masquerade detection with Magika and Wazuh rules mapped to ATT&CK T1036.008.
+- A local-only adapter for importing Codex Security findings and scan coverage into Wazuh JSONL.
+- Cowrie SSH/Telnet honeypot rules for logins, brute force, commands, and payload downloads.
 - Windows and active-response examples under `detection-lab/`.
 
 ## Architecture
@@ -149,6 +151,20 @@ python3 integrations/file_masquerade_scan.py /path/to/scan \
 
 To ingest its events, copy `rules/magika_masquerade_rules.xml` to the Wazuh rules directory and configure a JSON `<localfile>` for `/var/log/masquerade.json`, as shown in that rule file.
 
+### Codex Security scan results
+
+The adapter reads a completed Codex Security canonical scan bundle and emits a
+coverage event plus one minimized event per finding. It verifies the sealed
+`findings.json` and `coverage.json` hashes before producing output. It does not
+start scans, send events over the network, or copy code evidence into Wazuh.
+See [`docs/codex-security-integration.md`](docs/codex-security-integration.md)
+for the manual ingestion steps.
+
+### Cowrie honeypot
+
+`rules/cowrie_honeypot_rules.xml` alerts on Cowrie's native JSON log, with no
+custom decoder. See [`docs/honeypot-integration.md`](docs/honeypot-integration.md).
+
 ## Development and verification
 
 The integration verification script expects a fully installed system with Wazuh, both systemd services, archive data, the pfSense SSH key, and the configured external services:
@@ -162,6 +178,8 @@ The Magika scanner has a self-contained synthetic test used by CI:
 ```bash
 python3 -m pip install magika
 python3 integrations/selftest_masquerade.py
+uv run integrations/selftest_codex_security.py
+scripts/test-wazuh-rules.sh   # needs docker; checks rule IDs with wazuh-logtest
 ```
 
 The GitHub Actions `security` workflow runs this self-test on Python 3.12 and performs an advisory OSV dependency scan.
