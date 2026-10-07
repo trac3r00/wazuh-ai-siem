@@ -1,0 +1,66 @@
+<!--
+  Wazuh rules for minimized Codex Security JSONL events.
+  Install manually only after approving the Wazuh manager ingestion and retention
+  policy. See docs/codex-security-integration.md.
+-->
+<group name="codex_security,">
+
+  <rule id="100960" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="integration">codex_security</field>
+    <field name="event">code_security_finding</field>
+    <description>Codex Security finding: $(title) at $(source_path):$(start_line)</description>
+    <group>codex_security,code_security_finding,</group>
+  </rule>
+
+  <rule id="100961" level="15">
+    <if_sid>100960</if_sid>
+    <field name="severity">critical</field>
+    <description>Critical Codex Security finding: $(title) at $(source_path):$(start_line)</description>
+    <group>codex_security,critical,</group>
+  </rule>
+
+  <rule id="100962" level="12">
+    <if_sid>100960</if_sid>
+    <field name="severity">high</field>
+    <description>High Codex Security finding: $(title) at $(source_path):$(start_line)</description>
+    <group>codex_security,high,</group>
+  </rule>
+
+  <rule id="100963" level="8">
+    <if_sid>100960</if_sid>
+    <field name="severity">medium</field>
+    <description>Medium Codex Security finding: $(title) at $(source_path):$(start_line)</description>
+    <group>codex_security,medium,</group>
+  </rule>
+
+  <rule id="100964" level="5">
+    <if_sid>100960</if_sid>
+    <field name="severity">low</field>
+    <description>Low Codex Security finding: $(title) at $(source_path):$(start_line)</description>
+    <group>codex_security,low,</group>
+  </rule>
+
+  <rule id="100965" level="3">
+    <if_sid>100960</if_sid>
+    <field name="severity">informational</field>
+    <description>Informational Codex Security result: $(title)</description>
+    <group>codex_security,informational,</group>
+  </rule>
+
+  <rule id="100966" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="integration">codex_security</field>
+    <field name="event">scan_coverage</field>
+    <description>Codex Security scan $(scan_id): $(completeness) coverage, $(finding_count) finding(s)</description>
+    <group>codex_security,scan_coverage,</group>
+  </rule>
+
+  <rule id="100967" level="5">
+    <if_sid>100966</if_sid>
+    <field name="completeness">partial|unknown</field>
+    <description>Codex Security scan $(scan_id) has incomplete coverage</description>
+    <group>codex_security,coverage_incomplete,</group>
+  </rule>
+
+</group>

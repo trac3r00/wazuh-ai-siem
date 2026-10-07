@@ -27,6 +27,26 @@
 </global>
 
 <!-- ============================================
+     CODEX SECURITY EVENTS
+     The adapter appends minimized JSON events locally.
+     Approve manager ingestion and retention before enabling this block.
+     ============================================ -->
+<localfile>
+  <log_format>json</log_format>
+  <location>/var/log/codex-security-events.jsonl</location>
+</localfile>
+
+<!-- ============================================
+     COWRIE HONEYPOT
+     Put this block on the agent that runs Cowrie.
+     See docs/honeypot-integration.md.
+     ============================================ -->
+<localfile>
+  <log_format>json</log_format>
+  <location>/home/cowrie/cowrie/var/log/cowrie/cowrie.json</location>
+</localfile>
+
+<!-- ============================================
      DNS AI INTEGRATION
      Analyzes DNS queries with LLM
      ============================================ -->
